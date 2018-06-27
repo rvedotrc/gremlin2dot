@@ -15,12 +15,14 @@ class Edge < Hash
   def inV ; self['inV'] ; end
   def outV ; self['outV'] ; end
   def properties ; self['properties'] || {} ; end
+  def inspect ; "#<#{self.class.name} #{super}>" ; end
 end
 
 class Vertex < Hash
   def id ; self['id'] ; end
   def label ; self['label'] ; end
   def properties ; self['properties'] || {} ; end
+  def inspect ; "#<#{self.class.name} #{super}>" ; end
 end
 
 class VertexProperty < Hash
@@ -36,8 +38,8 @@ class VertexProperty < Hash
     value.to_s
   end
 
-  def pretty_print
-    value.pretty_print
+  def pretty_print(*args)
+    value.pretty_print *args
   end
 end
 
@@ -53,14 +55,17 @@ class Property < Hash
     value.to_s
   end
 
-  def pretty_print
-    value.pretty_print
+  def pretty_print(*args)
+    value.pretty_print *args
   end
 end
 
+class Tree
+  attr_accessor :key, :items
+end
+
 def query(q)
-	url = @url + "?gremlin=#{q}"
-  JSON.parse(RestClient.get(url).body)
+  JSON.parse(RestClient.post(@url, { gremlin: q }.to_json, {content_type: :json, accept: :json}).body)
 end
 
 def unmangle(d)
@@ -72,6 +77,18 @@ def unmangle(d)
       h
     when 'g:List'
       unmangle d['@value']
+    when 'g:Tree'
+      # array of hashes, where each hash has 'key'=Vertex/Edge, 'value' = ...
+      # Array of Hash with 'key' and 'value', where ...
+      # – key is a Vertex
+      # – value is a Hash of @type/@value
+
+      d['@value'].map do |item|
+        t = Tree.new
+        t.key = unmangle item['key']
+        t.items = unmangle item['value']
+        t
+      end
     when 'g:Edge'
       unmangle_object(d, Edge)
     when 'g:Vertex'
@@ -91,7 +108,7 @@ def unmangle(d)
     when 'g:Date'
       Time.at(d['@value'] / 1000.0)
     else
-      $stderr.puts 'Ignoring unknown type ' + d['@type']
+      $stderr.puts 'Ignoring unknown type ' + d['@type'] + " with value #{d['@value'].inspect[0..200]}..."
       unmangle d['@value']
     end
   elsif d.kind_of? Hash
@@ -111,26 +128,49 @@ def unmangle_object(d, klass)
   o
 end
 
-nodes = query('g.V()')
-# edges = query('g.V().inE()')
-edges = query('g.E()')
+# require 'pp'
+# pp unmangle(query('g.V()'))
+# exit
 
-nd = unmangle(nodes)
-ed = unmangle(edges)
+all = query('g.V().bothE().tree()')
+# all = query('g.V().has("idValue", "HRAP423E/00").bothE().tree()')
+trees = unmangle(all)['result']['data']
 
 require 'ruby-graphviz'
-g = GraphViz.new("G")
+@g = GraphViz.new("G")
+require 'set'
+@seen = Set.new
 
-nd['result']['data'].each do |node|
-  label = node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
-  g.add_nodes(node.id, label: label)
+def add_thing(thing)
+  case thing
+  when Vertex
+    node = thing
+    unless @seen.include? node.id
+      label = node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
+      @g.add_nodes(node.id, label: label)
+      @seen << node.id
+    end
+  when Edge
+    edge = thing
+    unless @seen.include? edge.id
+      label = edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
+      @g.add_edges(edge.outV, edge.inV, label: label)
+      @seen << edge.id
+    end
+  when Tree
+    add_thing thing.key
+    thing.items.each {|child| add_thing child}
+  else
+    $stderr.puts "Not adding #{thing.class} to the graph"
+  end
 end
 
-ed['result']['data'].each do |edge|
-  label = edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
-  g.add_edges(edge.outV, edge.inV, label: label)
+trees.each do |t0|
+  t0.each do |t1|
+    add_thing t1
+  end
 end
 
-g.output(png: "/dev/stdout")
+@g.output(png: "/dev/stdout")
 
 exit
