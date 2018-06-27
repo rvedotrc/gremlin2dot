@@ -1,0 +1,136 @@
+#!/usr/bin/env ruby
+# vi: set ts=2 sw=2 :
+
+require 'json'
+require 'uri'
+require 'rest-client'
+
+@url = ARGV.shift
+
+class Edge < Hash
+  def id ; self['id'] ; end
+  def label ; self['label'] ; end
+  def inVLabel ; self['inVLabel'] ; end
+  def outVLabel ; self['outVLabel'] ; end
+  def inV ; self['inV'] ; end
+  def outV ; self['outV'] ; end
+  def properties ; self['properties'] || {} ; end
+end
+
+class Vertex < Hash
+  def id ; self['id'] ; end
+  def label ; self['label'] ; end
+  def properties ; self['properties'] || {} ; end
+end
+
+class VertexProperty < Hash
+  def id ; self['id'] ; end
+  def label ; self['label'] ; end
+  def value ; self['value'] ; end
+
+  def inspect
+    value.inspect
+  end
+
+  def to_s
+    value.to_s
+  end
+
+  def pretty_print
+    value.pretty_print
+  end
+end
+
+class Property < Hash
+  def key ; self['key'] ; end
+  def value ; self['value'] ; end
+
+  def inspect
+    value.inspect
+  end
+
+  def to_s
+    value.to_s
+  end
+
+  def pretty_print
+    value.pretty_print
+  end
+end
+
+def query(q)
+	url = @url + "?gremlin=#{q}"
+  JSON.parse(RestClient.get(url).body)
+end
+
+def unmangle(d)
+  if d.kind_of?(Hash) and d.has_key?('@type') and d.has_key?('@value') and d.keys.count == 2
+    case d['@type']
+    when 'g:Map'
+      h = Hash.new
+      raise unless d['@value'].empty?
+      h
+    when 'g:List'
+      unmangle d['@value']
+    when 'g:Edge'
+      unmangle_object(d, Edge)
+    when 'g:Vertex'
+      unmangle_object(d, Vertex)
+    when 'g:VertexProperty'
+      unmangle_object(d, VertexProperty)
+      # discard the id
+      # unmangle d['@value']['value']
+    when 'g:Property'
+      unmangle_object(d, Property)
+      # discard the key
+      # unmangle d['@value']['value']
+    when 'g:Int32'
+      d['@value']
+    when 'g:Double'
+      d['@value']
+    when 'g:Date'
+      Time.at(d['@value'] / 1000.0)
+    else
+      $stderr.puts 'Ignoring unknown type ' + d['@type']
+      unmangle d['@value']
+    end
+  elsif d.kind_of? Hash
+    d.entries.map {|k, v| [k, unmangle(v)]}.to_h
+  elsif d.kind_of? Array
+    d.map {|v| unmangle v}
+  else
+    d
+  end
+end
+
+def unmangle_object(d, klass)
+  o = klass.new
+  d['@value'].entries.each do |k, v|
+    o[k] = unmangle v
+  end
+  o
+end
+
+nodes = query('g.V()')
+# edges = query('g.V().inE()')
+edges = query('g.E()')
+
+nd = unmangle(nodes)
+ed = unmangle(edges)
+
+require 'ruby-graphviz'
+g = GraphViz.new("G")
+
+nd['result']['data'].each do |node|
+  label = node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
+  g.add_nodes(node.id, label: label)
+end
+
+ed['result']['data'].each do |edge|
+  label = edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
+  g.add_edges(edge.outV, edge.inV, label: label)
+end
+
+g.output(png: "/dev/stdout")
+
+exit
