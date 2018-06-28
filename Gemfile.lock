@@ -21,8 +21,8 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  rest-client
-  ruby-graphviz
+  rest-client (~> 2.0)
+  ruby-graphviz (~> 1.0)
 
 BUNDLED WITH
    1.16.1
