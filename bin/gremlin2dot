@@ -19,7 +19,12 @@ dot_file = nil
 png_file = nil
 svg_file = nil
 
+if ARGV.empty?
+  ARGV << "--help"
+end
+
 opts = OptionParser.new
+
 opts.on('-e', '--endpoint URL', 'The URL of the Gremlin endpoint') {|v| endpoint = v }
 opts.on('-q', '--query QUERY', 'The Gremlin query to run') {|v| query = v }
 opts.on('--stdin', 'Read Gremlin results as JSON from standard input') { use_stdin = true }
@@ -28,10 +33,40 @@ opts.on('--canon FILE', 'Write the results as canonical DOT to FILE') {|v| canon
 opts.on('--dot FILE', 'Write the results as placed DOT to FILE') {|v| dot_file = v }
 opts.on('--png FILE', 'Write the results as PNG to FILE') {|v| png_file = v }
 opts.on('--svg FILE', 'Write the results as SVG to FILE') {|v| svg_file = v }
+
+opts.separator <<EOF
+
+gremlin2dot turns the results of a Gremlin query into a GraphViz graph, so
+that they can be visualised.
+
+It can either fetch the results as JSON from a Gremlin endpoint (--endpoint
+URL --query QUERY), or it can read some results from standard input (--stdin).
+
+The JSON can then be saved as-is (--save-json FILE).  Obviously this is most
+useful with --endpoint/--query.
+
+The graph is then generated, in one or more of the following forms:
+
+ * as "canonical" DOT (--canon FILE)
+ * as "placed" DOT (--dot FILE)
+ * as PNG (--png FILE)
+ * as SVG (--svg FILE)
+
+If none of --canon/--dot/--png/--svg are specified, then "--canon /dev/stdout"
+is assumed.
+
+If no options are specified at all, then this help is shown.
+
+EOF
+
 opts.order!
 
 if !canon_file and !dot_file and !png_file and !svg_file
   canon_file = "/dev/stdout"
+end
+
+unless ARGV.empty?
+  error "No arguments accepted. See --help (or run with no arguments) for usage."
 end
 
 if endpoint.nil? != query.nil?
