@@ -1,176 +1,84 @@
 #!/usr/bin/env ruby
 # vi: set ts=2 sw=2 :
 
+require 'optparse'
+
+def error(message)
+  $stderr.puts message
+  exit 2
+end
+
+endpoint = nil
+query = nil
+use_stdin = false
+
+json_file = nil
+
+canon_file = nil
+dot_file = nil
+png_file = nil
+svg_file = nil
+
+opts = OptionParser.new
+opts.on('-e', '--endpoint URL', 'The URL of the Gremlin endpoint') {|v| endpoint = v }
+opts.on('-q', '--query QUERY', 'The Gremlin query to run') {|v| query = v }
+opts.on('--stdin', 'Read Gremlin results as JSON from standard input') { use_stdin = true }
+opts.on('--save-json FILE', 'Save the JSON to FILE') {|v| json_file = v }
+opts.on('--canon FILE', 'Write the results as canonical DOT to FILE') {|v| canon_file = v }
+opts.on('--dot FILE', 'Write the results as placed DOT to FILE') {|v| dot_file = v }
+opts.on('--png FILE', 'Write the results as PNG to FILE') {|v| png_file = v }
+opts.on('--svg FILE', 'Write the results as SVG to FILE') {|v| svg_file = v }
+opts.order!
+
+if !canon_file and !dot_file and !png_file and !svg_file
+  canon_file = "/dev/stdout"
+end
+
+if endpoint.nil? != query.nil?
+  error "Either specify both --endpoint and --query, or specify --stdin 1"
+end
+
+if use_stdin != endpoint.nil?
+  error "Either specify both --endpoint and --query, or specify --stdin 2"
+end
+
 require 'json'
-require 'uri'
-require 'rest-client'
-
-@url = ARGV.shift
-
-class Edge < Hash
-  def id ; self['id'] ; end
-  def label ; self['label'] ; end
-  def inVLabel ; self['inVLabel'] ; end
-  def outVLabel ; self['outVLabel'] ; end
-  def inV ; self['inV'] ; end
-  def outV ; self['outV'] ; end
-  def properties ; self['properties'] || {} ; end
-  def inspect ; "#<#{self.class.name} #{super}>" ; end
-end
-
-class Vertex < Hash
-  def id ; self['id'] ; end
-  def label ; self['label'] ; end
-  def properties ; self['properties'] || {} ; end
-  def inspect ; "#<#{self.class.name} #{super}>" ; end
-end
-
-class VertexProperty < Hash
-  def id ; self['id'] ; end
-  def label ; self['label'] ; end
-  def value ; self['value'] ; end
-
-  def inspect
-    value.inspect
-  end
-
-  def to_s
-    value.to_s
-  end
-
-  def pretty_print(*args)
-    value.pretty_print *args
-  end
-end
-
-class Property < Hash
-  def key ; self['key'] ; end
-  def value ; self['value'] ; end
-
-  def inspect
-    value.inspect
-  end
-
-  def to_s
-    value.to_s
-  end
-
-  def pretty_print(*args)
-    value.pretty_print *args
-  end
-end
-
-class Tree
-  attr_accessor :key, :items
-end
-
-def query(q)
-  JSON.parse(RestClient.post(@url, { gremlin: q }.to_json, {content_type: :json, accept: :json}).body)
-end
-
-def unmangle(d)
-  if d.kind_of?(Hash) and d.has_key?('@type') and d.has_key?('@value') and d.keys.count == 2
-    case d['@type']
-    when 'g:Map'
-      h = Hash.new
-      raise unless d['@value'].empty?
-      h
-    when 'g:List'
-      unmangle d['@value']
-    when 'g:Tree'
-      # array of hashes, where each hash has 'key'=Vertex/Edge, 'value' = ...
-      # Array of Hash with 'key' and 'value', where ...
-      # – key is a Vertex
-      # – value is a Hash of @type/@value
-
-      d['@value'].map do |item|
-        t = Tree.new
-        t.key = unmangle item['key']
-        t.items = unmangle item['value']
-        t
-      end
-    when 'g:Edge'
-      unmangle_object(d, Edge)
-    when 'g:Vertex'
-      unmangle_object(d, Vertex)
-    when 'g:VertexProperty'
-      unmangle_object(d, VertexProperty)
-      # discard the id
-      # unmangle d['@value']['value']
-    when 'g:Property'
-      unmangle_object(d, Property)
-      # discard the key
-      # unmangle d['@value']['value']
-    when 'g:Int32'
-      d['@value']
-    when 'g:Double'
-      d['@value']
-    when 'g:Date'
-      Time.at(d['@value'] / 1000.0)
-    else
-      $stderr.puts 'Ignoring unknown type ' + d['@type'] + " with value #{d['@value'].inspect[0..200]}..."
-      unmangle d['@value']
-    end
-  elsif d.kind_of? Hash
-    d.entries.map {|k, v| [k, unmangle(v)]}.to_h
-  elsif d.kind_of? Array
-    d.map {|v| unmangle v}
-  else
-    d
-  end
-end
-
-def unmangle_object(d, klass)
-  o = klass.new
-  d['@value'].entries.each do |k, v|
-    o[k] = unmangle v
-  end
-  o
-end
-
-# require 'pp'
-# pp unmangle(query('g.V()'))
-# exit
-
-all = query('g.V().bothE().tree()')
-# all = query('g.V().has("idValue", "HRAP423E/00").bothE().tree()')
-trees = unmangle(all)['result']['data']
-
+require 'gremlin2dot'
 require 'ruby-graphviz'
-@g = GraphViz.new("G")
-require 'set'
-@seen = Set.new
 
-def add_thing(thing)
-  case thing
-  when Vertex
-    node = thing
-    unless @seen.include? node.id
-      label = node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
-      @g.add_nodes(node.id, label: label)
-      @seen << node.id
-    end
-  when Edge
-    edge = thing
-    unless @seen.include? edge.id
-      label = edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
-      @g.add_edges(edge.outV, edge.inV, label: label)
-      @seen << edge.id
-    end
-  when Tree
-    add_thing thing.key
-    thing.items.each {|child| add_thing child}
-  else
-    $stderr.puts "Not adding #{thing.class} to the graph"
-  end
+json_text = if use_stdin
+              $stdin.read
+            else
+              require 'rest-client'
+              RestClient.post(
+                endpoint,
+                { gremlin: query }.to_json,
+                { content_type: :json, accept: :json },
+              ).body
+            end
+
+if json_file
+  IO.write(json_file, json_text)
 end
 
-trees.each do |t0|
-  t0.each do |t1|
-    add_thing t1
-  end
+query_results = JSON.parse(json_text)
+unmangled_data = Gremlin2Dot::Unmangler.new.unmangle(query_results)
+g = Gremlin2Dot::GraphBuilder.build(unmangled_data)
+
+if canon_file
+  g.output(canon: canon_file)
 end
 
-@g.output(png: "/dev/stdout")
+if dot_file
+  g.output(dot: dot_file)
+end
+
+if png_file
+  g.output(png: png_file)
+end
+
+if svg_file
+  g.output(svg: svg_file)
+end
 
 exit
