@@ -45,13 +45,13 @@ module Gremlin2Dot
     end
 
     def add_node(node)
-      label = node.id + "\n" + node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
-      @g.add_nodes(node.id, label: label)
+      label = node.id.to_s + "\n" + node.label + node.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v.first}" }.join("")
+      @g.add_nodes(node.id.to_s, label: label)
     end
 
     def add_edge(edge)
-      label = edge.id + "\n" + edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
-      @g.add_edges(edge.outV, edge.inV, label: label)
+      label = edge.id.to_s + "\n" + edge.label + edge.properties.entries.sort_by(&:first).map {|k, v| "\n#{k}=#{v}" }.join("")
+      @g.add_edges(edge.outV.to_s, edge.inV.to_s, label: label)
     end
 
   end
