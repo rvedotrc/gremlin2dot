@@ -2,8 +2,8 @@
 
 Gem::Specification.new do |s|
   s.name        = 'gremlin2dot'
-  s.version     = '0.1.2'
-  s.date        = '2018-07-13'
+  s.version     = '0.1.3'
+  s.date        = '2018-08-13'
   s.summary     = 'Run a gremlin query, and visualise using GraphViz'
   s.description = <<-EOF
 
