@@ -6,9 +6,9 @@ module Gremlin2Dot
       if d.kind_of?(Hash) and d.has_key?('@type') and d.has_key?('@value') and d.keys.count == 2
         case d['@type']
         when 'g:Map'
-          h = Hash.new
-          raise unless d['@value'].empty?
-          h
+          d['@value'].map {|t| unmangle t}.to_h
+        when 'g:Set'
+          d['@value'].map {|t| unmangle t}.to_set
         when 'g:List'
           unmangle d['@value']
         when 'g:Tree'
@@ -23,6 +23,8 @@ module Gremlin2Dot
             t.items = unmangle item['value']
             t
           end
+        when 'g:Path'
+          unmangle_object(d, Path)
         when 'g:Edge'
           unmangle_object(d, Edge)
         when 'g:Vertex'
@@ -35,9 +37,7 @@ module Gremlin2Dot
           unmangle_object(d, Property)
           # discard the key
           # unmangle d['@value']['value']
-        when 'g:Int32'
-          d['@value']
-        when 'g:Double'
+        when 'g:Int32', 'g:Int64', 'g:Double'
           d['@value']
         when 'g:Date'
           Time.at(d['@value'] / 1000.0)

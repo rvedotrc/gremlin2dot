@@ -30,6 +30,8 @@ module Gremlin2Dot
       when Tree
         add_thing thing.key
         thing.items.each {|child| add_thing child}
+      when Path
+        thing.objects.each {|child| add_thing child}
       when Array
         thing.each {|child| add_thing child}
       else

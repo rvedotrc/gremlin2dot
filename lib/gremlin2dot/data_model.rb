@@ -57,4 +57,10 @@ module Gremlin2Dot
     attr_accessor :key, :items
   end
 
+  class Path < Hash
+    def labels ; self['labels'] ; end
+    def objects ; self['objects'] || {} ; end
+    def inspect ; "#<#{self.class.name} #{super}>" ; end
+  end
+
 end
